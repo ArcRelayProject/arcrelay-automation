@@ -602,7 +602,7 @@ fn presence_trigger_and_condition_are_stable_and_matchable() {
         presence_state: Some(PresenceEvent::OwnerPresent),
         ..Default::default()
     };
-    assert!(condition_failure(&[condition.clone()], &matching, Utc::now()).is_none());
+    assert!(condition_failure(std::slice::from_ref(&condition), &matching, Utc::now()).is_none());
     assert!(condition_failure(&[condition], &EnvironmentState::default(), Utc::now()).is_some());
 }
 
