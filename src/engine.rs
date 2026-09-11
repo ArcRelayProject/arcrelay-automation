@@ -110,6 +110,9 @@ impl AutomationEngine {
             if matches!(condition, AutomationCondition::ApplicationRunning { .. }) {
                 require("application.started".into(), None);
             }
+            if let AutomationCondition::Presence { state } = condition {
+                require(format!("presence.{}", state.token()), None);
+            }
         }
         for (index, step) in definition.steps.iter().enumerate() {
             match step {
