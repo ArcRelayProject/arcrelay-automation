@@ -575,6 +575,37 @@ async fn self_generated_events_are_recorded_as_skipped() {
         ActivityStatus::Skipped
     );
 }
+
+#[test]
+fn presence_trigger_and_condition_are_stable_and_matchable() {
+    let trigger = AutomationTrigger::Presence {
+        state: PresenceEvent::UnknownPresent,
+    };
+    let mut event = AutomationEvent::new("presence.unknownPresent");
+    event
+        .variables
+        .insert("event.presence.state".into(), "unknownPresent".into());
+    event
+        .variables
+        .insert("event.presence.faceCount".into(), "1".into());
+    event
+        .variables
+        .insert("event.presence.ownerSimilarity".into(), "0.42".into());
+    assert_eq!(trigger.capability(), "presence.unknownPresent");
+    assert!(trigger.matches(&event));
+    assert!(available_variables(&trigger).contains(&"event.presence.ownerSimilarity"));
+
+    let condition = AutomationCondition::Presence {
+        state: PresenceEvent::OwnerPresent,
+    };
+    let matching = EnvironmentState {
+        presence_state: Some(PresenceEvent::OwnerPresent),
+        ..Default::default()
+    };
+    assert!(condition_failure(&[condition.clone()], &matching, Utc::now()).is_none());
+    assert!(condition_failure(&[condition], &EnvironmentState::default(), Utc::now()).is_some());
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn shell_is_bounded_preserves_exit_code_and_event_data_is_not_code() {
