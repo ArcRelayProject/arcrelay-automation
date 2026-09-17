@@ -133,17 +133,15 @@ impl AutomationStore {
             .bind(&activity.id).bind(&activity.automation_id).bind(&activity.event.id).bind(activity.status.key()).bind(activity.created_at.timestamp_millis()).bind(serde_json::to_string(activity)?).execute(self.db().await?).await?.rows_affected() == 1)
     }
     pub async fn save_activity(&self, activity: &AutomationActivity) -> Result<()> {
-        let mut tx = self.db().await?.begin().await?;
+        // The activity document is the authoritative, atomic execution snapshot.
+        // Legacy step rows duplicate its contents and are intentionally no longer
+        // written; readers and recovery have always used automation_runs.data.
         sqlx::query("UPDATE automation_runs SET status=?,data=? WHERE id=?")
             .bind(activity.status.key())
             .bind(serde_json::to_string(activity)?)
             .bind(&activity.id)
-            .execute(&mut *tx)
+            .execute(self.db().await?)
             .await?;
-        for step in &activity.steps {
-            sqlx::query("INSERT INTO automation_step_runs VALUES (?,?,?) ON CONFLICT(run_id,step_index) DO UPDATE SET data=excluded.data").bind(&activity.id).bind(step.index as i64).bind(serde_json::to_string(step)?).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
         Ok(())
     }
     pub async fn activity(&self, id: &str) -> Result<AutomationActivity> {
