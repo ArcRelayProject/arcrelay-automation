@@ -77,6 +77,18 @@ impl AutomationEngine {
         self.0.store.migrated(id).await
     }
     pub async fn preflight(&self, definition: &AutomationDefinition) -> Vec<AutomationIssue> {
+        let capabilities = self.capabilities().await;
+        self.preflight_with_capabilities(definition, &capabilities)
+            .await
+    }
+
+    /// Reuse one capability observation across a batch of definition checks.
+    /// Action and application checks remain live, including at execution time.
+    pub async fn preflight_with_capabilities(
+        &self,
+        definition: &AutomationDefinition,
+        capabilities: &[Capability],
+    ) -> Vec<AutomationIssue> {
         let mut issues = vec![];
         if let Err(error) = validate(definition) {
             issues.push(AutomationIssue {
@@ -86,7 +98,6 @@ impl AutomationEngine {
                 step_index: None,
             });
         }
-        let capabilities = self.capabilities().await;
         let mut require = |id: String, step_index| {
             if !capabilities.iter().any(|c| c.id == id && c.available) {
                 let c = capabilities.iter().find(|c| c.id == id);

@@ -5,6 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
 struct Runner {
+    capability_queries: std::sync::atomic::AtomicUsize,
     action: Mutex<Option<ActionSnapshot>>,
     executions: Mutex<Vec<String>>,
     locked: Mutex<bool>,
@@ -12,6 +13,8 @@ struct Runner {
 #[async_trait::async_trait]
 impl AutomationRunner for Runner {
     async fn capabilities(&self) -> Vec<Capability> {
+        self.capability_queries
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         [
             "manual",
             "session.confirm",
@@ -52,6 +55,68 @@ impl AutomationRunner for Runner {
         self.executions.lock().unwrap().push(title.into());
         StepResult::default()
     }
+}
+
+#[tokio::test]
+async fn batch_preflight_reuses_capability_observation() {
+    let runner = runner();
+    let engine = engine(runner.clone());
+    let capabilities = engine.capabilities().await;
+    for _ in 0..16 {
+        assert!(engine
+            .preflight_with_capabilities(&definition(), &capabilities)
+            .await
+            .is_empty());
+    }
+    assert_eq!(
+        runner
+            .capability_queries
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+}
+
+#[tokio::test]
+async fn full_length_run_persists_one_authoritative_snapshot_without_step_duplicates() {
+    let directory = tempfile::tempdir().unwrap();
+    let url = format!(
+        "sqlite://{}",
+        directory.path().join("activity.sqlite3").display()
+    );
+    let store = AutomationStore::new(&url).unwrap();
+    let engine = AutomationEngine::new(store, runner());
+    let mut definition = definition();
+    definition.steps = vec![
+        AutomationStep::Notification {
+            title: "finished".into(),
+            body: "".into(),
+            send_to_connected_devices: false,
+        };
+        64
+    ];
+    let definition = engine.save(definition).await.unwrap();
+    let database = sqlx::SqlitePool::connect(&url).await.unwrap();
+    sqlx::raw_sql("CREATE TRIGGER no_duplicate_steps BEFORE INSERT ON automation_step_runs BEGIN SELECT RAISE(ABORT, 'duplicate step writes'); END;").execute(&database).await.unwrap();
+    let id = engine.run(&definition.id).await.unwrap();
+    let activity = terminal(&engine, &id).await;
+    assert_eq!(activity.status, ActivityStatus::Succeeded);
+    let reopened = AutomationStore::new(&url)
+        .unwrap()
+        .activity(&id)
+        .await
+        .unwrap();
+    assert_eq!(reopened.steps.len(), 64);
+    assert!(reopened
+        .steps
+        .iter()
+        .all(|step| step.status == ActivityStatus::Succeeded));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM automation_step_runs")
+            .fetch_one(&database)
+            .await
+            .unwrap(),
+        0
+    );
 }
 fn runner() -> Arc<Runner> {
     Arc::new(Runner {
