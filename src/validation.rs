@@ -126,6 +126,11 @@ pub fn available_variables(trigger: &AutomationTrigger) -> Vec<&'static str> {
         AutomationTrigger::Schedule { .. } => {
             vec!["event.schedule.plannedAt", "event.schedule.actualAt"]
         }
+        AutomationTrigger::Presence { .. } => vec![
+            "event.presence.state",
+            "event.presence.faceCount",
+            "event.presence.ownerSimilarity",
+        ],
         _ => vec![],
     }
 }
@@ -221,6 +226,10 @@ pub fn condition_failure(
                     "the current time is outside the configured schedule".into(),
                 )
             }
+            AutomationCondition::Presence { state: expected } => (
+                state.presence_state == Some(*expected),
+                "the current presence state does not satisfy the condition".into(),
+            ),
         };
         if !matches {
             return Some(reason);

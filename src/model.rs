@@ -73,6 +73,9 @@ impl AutomationDefinition {
             }
             .into(),
             AutomationTrigger::Hotkey { shortcut } => format!("When {shortcut} is pressed"),
+            AutomationTrigger::Presence { state } => {
+                format!("When presence becomes {}", state.label())
+            }
         };
         let conditions = self
             .conditions
@@ -112,6 +115,9 @@ impl AutomationDefinition {
                             "is not connected"
                         }
                     )
+                }
+                AutomationCondition::Presence { state } => {
+                    format!("presence is {}", state.label())
                 }
             })
             .collect::<Vec<_>>()
@@ -203,6 +209,9 @@ pub enum AutomationTrigger {
     Hotkey {
         shortcut: String,
     },
+    Presence {
+        state: PresenceEvent,
+    },
 }
 
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -223,6 +232,39 @@ pub enum SessionEvent {
     Sleeping,
     Resumed,
     Started,
+}
+
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PresenceEvent {
+    OwnerPresent,
+    Absent,
+    UnknownPresent,
+    MultiplePeople,
+    Uncertain,
+}
+
+impl PresenceEvent {
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::OwnerPresent => "ownerPresent",
+            Self::Absent => "absent",
+            Self::UnknownPresent => "unknownPresent",
+            Self::MultiplePeople => "multiplePeople",
+            Self::Uncertain => "uncertain",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::OwnerPresent => "owner present",
+            Self::Absent => "absent",
+            Self::UnknownPresent => "an unknown person present",
+            Self::MultiplePeople => "multiple people present",
+            Self::Uncertain => "uncertain",
+        }
+    }
 }
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -263,6 +305,9 @@ pub enum AutomationCondition {
     DeviceConnected {
         device_id: String,
         connected: bool,
+    },
+    Presence {
+        state: PresenceEvent,
     },
 }
 
@@ -441,6 +486,7 @@ pub struct EnvironmentState {
     pub running_app_ids: Vec<String>,
     pub connected_device_ids: Vec<String>,
     pub locked: bool,
+    pub presence_state: Option<PresenceEvent>,
 }
 
 impl AutomationTrigger {
@@ -479,6 +525,7 @@ impl AutomationTrigger {
                 format!("transfer.{}", if *received { "received" } else { "sent" })
             }
             Self::Hotkey { .. } => "hotkey".into(),
+            Self::Presence { state } => format!("presence.{}", state.token()),
         }
     }
     pub fn matches(&self, event: &AutomationEvent) -> bool {
