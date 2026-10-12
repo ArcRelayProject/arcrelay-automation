@@ -17,6 +17,7 @@ impl AutomationRunner for Runner {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         [
             "manual",
+            "bluetooth.far",
             "session.confirm",
             "system.locked",
             "system.started",
@@ -720,4 +721,48 @@ async fn shell_cancel_stops_a_running_process_group() {
     )
     .await;
     assert_eq!(result.error.as_deref(), Some("run canceled"));
+}
+
+#[tokio::test]
+async fn bluetooth_events_target_exact_rule_revision_and_record_evidence() {
+    let runner = runner();
+    let engine = engine(runner);
+    let mut a = definition();
+    a.trigger = AutomationTrigger::Bluetooth {
+        config: BluetoothTrigger {
+            device_id: "phone".into(),
+            device_name: "Phone".into(),
+            calibration: Some(BluetoothCalibration {
+                near_rssi: -55,
+                far_rssi: -80,
+            }),
+            duration_seconds: 15,
+            signal_loss_seconds: None,
+        },
+    };
+    let a = engine.save(a).await.unwrap();
+    let mut b = a.clone();
+    b.id = uuid::Uuid::new_v4().to_string();
+    b.revision = 0;
+    let b = engine.save(b).await.unwrap();
+    let mut event = AutomationEvent::new("bluetooth.far");
+    event.variables.extend([
+        ("event.bluetooth.deviceId".into(), "phone".into()),
+        ("event.bluetooth.ruleId".into(), a.id.clone()),
+        (
+            "event.bluetooth.revision".into(),
+            (a.revision + 1).to_string(),
+        ),
+        ("event.bluetooth.reason".into(), "far".into()),
+    ]);
+    assert!(engine.dispatch(event.clone()).await.unwrap().is_empty());
+    event
+        .variables
+        .insert("event.bluetooth.revision".into(), a.revision.to_string());
+    let ids = engine.dispatch(event).await.unwrap();
+    assert_eq!(ids.len(), 1);
+    let activity = terminal(&engine, &ids[0]).await;
+    assert_eq!(activity.automation_id, a.id);
+    assert_eq!(activity.event.variables["event.bluetooth.reason"], "far");
+    assert!(engine.activities(Some(&b.id), 10).await.unwrap().is_empty());
 }

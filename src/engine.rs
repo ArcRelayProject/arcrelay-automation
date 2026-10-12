@@ -9,6 +9,12 @@ pub trait AutomationRunner: Send + Sync {
     async fn record_origin(&self, _automation_id: &str) {}
     async fn capabilities(&self) -> Vec<Capability>;
     async fn environment(&self) -> EnvironmentState;
+    async fn trigger_available(
+        &self,
+        _trigger: &AutomationTrigger,
+    ) -> std::result::Result<(), String> {
+        Ok(())
+    }
     async fn application_available(
         &self,
         _app: &ApplicationIdentity,
@@ -94,6 +100,14 @@ impl AutomationEngine {
             issues.push(AutomationIssue {
                 code: "configuration".into(),
                 message: error.to_string(),
+                remedy: "edit".into(),
+                step_index: None,
+            });
+        }
+        if let Err(message) = self.0.runner.trigger_available(&definition.trigger).await {
+            issues.push(AutomationIssue {
+                code: "trigger.unavailable".into(),
+                message,
                 remedy: "edit".into(),
                 step_index: None,
             });
@@ -268,7 +282,13 @@ impl AutomationEngine {
         let _guard = self.0.gate.lock().await;
         let mut ids = vec![];
         for definition in self.list().await? {
-            if definition.enabled && definition.trigger.matches(&event) {
+            // Proximity monitors evaluate each rule independently. Never apply another
+            // rule's threshold/duration, or an event from a superseded revision.
+            let targeted = !matches!(definition.trigger, AutomationTrigger::Bluetooth { .. })
+                || (event.variables.get("event.bluetooth.ruleId") == Some(&definition.id)
+                    && event.variables.get("event.bluetooth.revision")
+                        == Some(&definition.revision.to_string()));
+            if targeted && definition.enabled && definition.trigger.matches(&event) {
                 ids.push(self.enqueue(definition, event.clone(), false).await?);
             }
         }

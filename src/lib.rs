@@ -1,3 +1,5 @@
+mod bluetooth;
+pub use bluetooth::*;
 mod engine;
 mod model;
 mod shell;
