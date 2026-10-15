@@ -17,6 +17,7 @@ pub fn validate(definition: &AutomationDefinition) -> Result<()> {
         return Err(invalid("configuration cannot exceed 512 KiB"));
     }
     match &definition.trigger {
+        AutomationTrigger::Bluetooth { config } => config.validate()?,
         AutomationTrigger::Schedule {
             time,
             weekdays,
@@ -109,6 +110,12 @@ fn validate_time(time: &str, weekdays: &[u8], timezone: &str) -> Result<()> {
 
 pub fn available_variables(trigger: &AutomationTrigger) -> Vec<&'static str> {
     match trigger {
+        AutomationTrigger::Bluetooth { .. } => vec![
+            "event.bluetooth.deviceId",
+            "event.bluetooth.deviceName",
+            "event.bluetooth.rssi",
+            "event.bluetooth.reason",
+        ],
         AutomationTrigger::Application { .. } => {
             vec!["event.app.name", "event.app.path", "event.app.id"]
         }

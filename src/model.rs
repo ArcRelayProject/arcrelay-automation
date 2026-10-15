@@ -27,6 +27,10 @@ impl AutomationDefinition {
     }
     pub fn summary_with_actions(&self, names: &BTreeMap<String, String>) -> String {
         let trigger = match &self.trigger {
+            AutomationTrigger::Bluetooth { config } => format!(
+                "When {} stays away for {} seconds",
+                config.device_name, config.duration_seconds
+            ),
             AutomationTrigger::Manual => "Run manually".into(),
             AutomationTrigger::Schedule { time, weekdays, .. } => format!(
                 "Every {} at {time}",
@@ -183,6 +187,9 @@ pub struct ApplicationIdentity {
     rename_all_fields = "camelCase"
 )]
 pub enum AutomationTrigger {
+    Bluetooth {
+        config: crate::BluetoothTrigger,
+    },
     Manual,
     Schedule {
         time: String,
@@ -492,6 +499,7 @@ pub struct EnvironmentState {
 impl AutomationTrigger {
     pub fn capability(&self) -> String {
         match self {
+            Self::Bluetooth { .. } => "bluetooth.far".into(),
             Self::Manual => "manual".into(),
             Self::Schedule { .. } => "schedule".into(),
             Self::Application { event, .. } => format!(
@@ -540,6 +548,7 @@ impl AutomationTrigger {
                 .unwrap_or_default()
         };
         match self {
+            Self::Bluetooth { config } => config.device_id == get("event.bluetooth.deviceId"),
             Self::Application { apps, .. } => apps.iter().any(|app| app.id == get("event.app.id")),
             Self::Device { device_ids, .. } => {
                 device_ids.is_empty() || device_ids.iter().any(|id| id == get("event.device.id"))
